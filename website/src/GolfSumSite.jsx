@@ -39,6 +39,20 @@ const fromFirestoreFields = (fields) => {
   for (const [k, v] of Object.entries(fields)) obj[k] = fromFirestoreValue(v);
   return obj;
 };
+const toFirestoreValue = (v) => {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(toFirestoreValue) } };
+  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (typeof v === "number") return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (typeof v === "boolean") return { booleanValue: v };
+  if (typeof v === "object") return { mapValue: { fields: toFirestoreFields(v) } };
+  return { stringValue: String(v) };
+};
+const toFirestoreFields = (obj) => {
+  const fields = {};
+  for (const [k, v] of Object.entries(obj || {})) fields[k] = toFirestoreValue(v);
+  return fields;
+};
 
 // ─── Auth ───
 const signInWithEmail = async (email, password) => {
@@ -67,8 +81,45 @@ const firestoreList = async (path, token, pageSize = 100) => {
   const d = await r.json();
   return (d.documents || []).map((doc) => ({ id: doc.name.split("/").pop(), ...fromFirestoreFields(doc.fields || {}) }));
 };
+const firestoreQuery = async (structuredQuery, token) => {
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents:runQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ structuredQuery }),
+  });
+  if (!r.ok) return [];
+  const d = await r.json();
+  return d.map((row) => row.document).filter(Boolean).map((doc) => ({ id: doc.name.split("/").pop(), ...fromFirestoreFields(doc.fields || {}) }));
+};
+const firestoreAggregateCount = async (structuredQuery, token, alias = "count") => {
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents:runAggregationQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({
+      structuredAggregationQuery: {
+        structuredQuery,
+        aggregations: [{ alias, count: {} }],
+      },
+    }),
+  });
+  if (!r.ok) return null;
+  const d = await r.json();
+  const v = d?.[0]?.result?.aggregateFields?.[alias];
+  if (!v) return null;
+  return v.integerValue != null ? Number(v.integerValue) : v.doubleValue ?? null;
+};
+const firestorePatch = async (path, token, updates) => {
+  const params = Object.keys(updates || {}).map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join("&");
+  const url = `${FIRESTORE_BASE}/${path}${params ? `?${params}` : ""}`;
+  const r = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ fields: toFirestoreFields(updates) }),
+  });
+  return r.ok;
+};
 const listAllUsers = async (token) => {
-  const r = await fetch(`${FIRESTORE_BASE}/user_profiles?pageSize=300`, {
+  const r = await fetch(`${FIRESTORE_BASE}/users?pageSize=300`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!r.ok) return [];
@@ -76,9 +127,17 @@ const listAllUsers = async (token) => {
   return (d.documents || []).map((doc) => ({ uid: doc.name.split("/").pop(), ...fromFirestoreFields(doc.fields || {}) }));
 };
 const getUserRounds = async (uid, token) => firestoreList(`users/${uid}/rounds`, token, 300);
+const updateLastLogin = async (uid, token) => {
+  const device = {
+    userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+    platform: typeof navigator !== "undefined" ? navigator.platform : "",
+  };
+  const updates = { lastLoginAt: new Date().toISOString(), lastLoginDevice: device };
+  await firestorePatch(`users/${uid}`, token, updates);
+};
 
 // ─── Config ───
-const ADMIN_EMAILS = ["admin@golfsum.com"]; // ← Add your email
+const ADMIN_EMAILS = ["support@golfsum.com"]; // ← Add your email
 
 // ─── Theme ───
 const C = {
@@ -586,6 +645,7 @@ function LoginPage({ onLogin }) {
     try {
       const res = await (mode === "signin" ? signInWithEmail : signUpWithEmail)(email, pass);
       onLogin({ uid: res.localId, email: res.email, idToken: res.idToken, refreshToken: res.refreshToken });
+      updateLastLogin(res.localId, res.idToken);
     } catch (e) { setError(e.message.replace(/_/g, " ").toLowerCase()); }
     setLoading(false);
   };
@@ -731,6 +791,7 @@ function AdminPage({ user }) {
   const [selectedRounds, setSelectedRounds] = useState([]);
   const [loadingUser, setLoadingUser] = useState(false);
   const [tab, setTab] = useState("overview");
+  const [ocrStats, setOcrStats] = useState({ total: null, last: null });
 
   useEffect(() => {
     (async () => {
@@ -741,6 +802,15 @@ function AdminPage({ user }) {
         const rm = {};
         await Promise.all(u.map(async (usr) => { try { rm[usr.uid] = await getUserRounds(usr.uid, user.idToken); } catch { rm[usr.uid] = []; } }));
         setAllRounds(rm);
+        const ocrBase = {
+          from: [{ collectionId: "courses" }],
+          where: { fieldFilter: { field: { fieldPath: "source" }, op: "EQUAL", value: { stringValue: "USER_OCR" } } },
+        };
+        const [totalOcr, lastOcrArr] = await Promise.all([
+          firestoreAggregateCount(ocrBase, user.idToken, "ocrCount"),
+          firestoreQuery({ ...ocrBase, orderBy: [{ field: { fieldPath: "lastVerifiedAt" }, direction: "DESCENDING" }], limit: 1 }, user.idToken),
+        ]);
+        setOcrStats({ total: totalOcr, last: lastOcrArr?.[0] || null });
       } catch (e) { console.error(e); }
       setLoading(false);
     })();
@@ -755,6 +825,8 @@ function AdminPage({ user }) {
   const totalRounds = Object.values(allRounds).reduce((s, r) => s + r.length, 0);
   const activeUsers = Object.entries(allRounds).filter(([, r]) => r.length > 0).length;
   const recentRounds = Object.values(allRounds).flat().filter((r) => daysSince(r.date) <= 7).length;
+  const ocrLastAt = ocrStats.last?.lastVerifiedAt ? new Date(ocrStats.last.lastVerifiedAt).toISOString() : (ocrStats.last?.updatedAt || null);
+  const ocrLastName = ocrStats.last?.name || "—";
 
   const filtered = searchTerm ? users.filter((u) => {
     const t = searchTerm.toLowerCase();
@@ -789,15 +861,17 @@ function AdminPage({ user }) {
             <div className="stat-box"><div className="stat-value">{recentRounds}</div><div className="stat-label">Rounds (7 days)</div></div>
             <div className="stat-box"><div className="stat-value">{users.length ? (totalRounds / users.length).toFixed(1) : "0"}</div><div className="stat-label">Avg Rounds/User</div></div>
             <div className="stat-box"><div className="stat-value">{users.length ? Math.round((activeUsers / users.length) * 100) : 0}%</div><div className="stat-label">Activation Rate</div></div>
+            <div className="stat-box"><div className="stat-value">{ocrStats.total != null ? ocrStats.total : "—"}</div><div className="stat-label">OCR Uploads</div></div>
+            <div className="stat-box"><div className="stat-value" style={{ fontSize: 13 }}>{ocrLastAt ? fmtDate(ocrLastAt) : "—"}</div><div className="stat-label">Last OCR: {ocrLastName}</div></div>
           </div>
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}><h3 style={{ fontSize: 15, fontWeight: 600 }}>Most Active Users</h3></div>
-            <table className="table"><thead><tr><th>User</th><th>UID</th><th>Rounds</th><th>Best</th><th>Last Round</th><th></th></tr></thead><tbody>
+            <table className="table"><thead><tr><th>User</th><th>UID</th><th>Rounds</th><th>Best</th><th>Last Round</th><th>Last Login</th><th></th></tr></thead><tbody>
               {users.sort((a, b) => (allRounds[b.uid]?.length || 0) - (allRounds[a.uid]?.length || 0)).slice(0, 15).map((u, i) => {
                 const r = allRounds[u.uid] || [];
                 const best = r.length ? Math.min(...r.map((x) => x.score).filter(Boolean)) : null;
                 const last = r.length ? r.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))[0] : null;
-                return (<tr key={i}><td style={{ color: C.text, fontWeight: 500 }}>{u.personalInfo?.name || "—"}</td><td style={{ fontSize: 12, fontFamily: "monospace" }}>{u.uid.slice(0, 12)}...</td><td style={{ fontWeight: 600, color: C.text }}>{r.length}</td><td>{best || "—"}</td><td>{last ? fmtDate(last.date) : "—"}</td><td><button className="btn btn-ghost btn-sm" onClick={() => loadUserDetail(u)}>View</button></td></tr>);
+                return (<tr key={i}><td style={{ color: C.text, fontWeight: 500 }}>{u.personalInfo?.name || u.name || u.email || "—"}</td><td style={{ fontSize: 12, fontFamily: "monospace" }}>{u.uid.slice(0, 12)}...</td><td style={{ fontWeight: 600, color: C.text }}>{r.length}</td><td>{best || "—"}</td><td>{last ? fmtDate(last.date) : "—"}</td><td>{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "—"}</td><td><button className="btn btn-ghost btn-sm" onClick={() => loadUserDetail(u)}>View</button></td></tr>);
               })}
             </tbody></table>
           </div>
@@ -808,9 +882,9 @@ function AdminPage({ user }) {
         <div className="fade-in">
           <input className="input" placeholder="Search by name or UID..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ marginBottom: 16 }} />
           <div className="card" style={{ padding: 0, overflow: "auto" }}>
-            <table className="table"><thead><tr><th>Name</th><th>UID</th><th>Mode</th><th>Rounds</th><th>Home Course</th><th></th></tr></thead><tbody>
+            <table className="table"><thead><tr><th>Name</th><th>UID</th><th>Mode</th><th>Rounds</th><th>Last Login</th><th>Home Course</th><th></th></tr></thead><tbody>
               {filtered.map((u, i) => (
-                <tr key={i}><td style={{ color: C.text, fontWeight: 500 }}>{u.personalInfo?.name || "—"}</td><td style={{ fontSize: 12, fontFamily: "monospace" }}>{u.uid.slice(0, 16)}...</td><td><span className={`badge ${u.scoringMode === "advanced" ? "badge-green" : "badge-blue"}`}>{u.scoringMode || "basic"}</span></td><td>{(allRounds[u.uid] || []).length}</td><td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.coursePreferences?.homeCourseName || "—"}</td><td><button className="btn btn-ghost btn-sm" onClick={() => loadUserDetail(u)}>Inspect</button></td></tr>
+                <tr key={i}><td style={{ color: C.text, fontWeight: 500 }}>{u.personalInfo?.name || u.name || u.email || "—"}</td><td style={{ fontSize: 12, fontFamily: "monospace" }}>{u.uid.slice(0, 16)}...</td><td><span className={`badge ${u.scoringMode === "advanced" ? "badge-green" : "badge-blue"}`}>{u.scoringMode || "basic"}</span></td><td>{(allRounds[u.uid] || []).length}</td><td>{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "—"}</td><td style={{ maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.coursePreferences?.homeCourseName || "—"}</td><td><button className="btn btn-ghost btn-sm" onClick={() => loadUserDetail(u)}>Inspect</button></td></tr>
               ))}
             </tbody></table>
           </div>
@@ -824,7 +898,7 @@ function AdminPage({ user }) {
               <div className="card" style={{ marginBottom: 20 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
                   <div>
-                    <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{selectedUser.personalInfo?.name || "Unnamed User"}</h3>
+                    <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{selectedUser.personalInfo?.name || selectedUser.name || selectedUser.email || "Unnamed User"}</h3>
                     <p style={{ fontSize: 13, color: C.textMuted, fontFamily: "monospace" }}>UID: {selectedUser.uid}</p>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -833,7 +907,14 @@ function AdminPage({ user }) {
                   </div>
                 </div>
                 <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-                  {[["Home Course", selectedUser.coursePreferences?.homeCourseName], ["Handicap", selectedUser.coursePreferences?.typicalHandicap], ["Favorite Tee", selectedUser.coursePreferences?.favoriteTee]].map(([l, v], i) => (
+                  {[
+                    ["Home Course", selectedUser.coursePreferences?.homeCourseName],
+                    ["Handicap", selectedUser.coursePreferences?.typicalHandicap],
+                    ["Favorite Tee", selectedUser.coursePreferences?.favoriteTee],
+                    ["Last Login", selectedUser.lastLoginAt ? fmtDate(selectedUser.lastLoginAt) : "—"],
+                    ["Device", selectedUser.lastLoginDevice?.platform || selectedUser.lastLoginDevice?.userAgent || "—"],
+                    ["Last Error", selectedUser.lastError?.message || "—"],
+                  ].map(([l, v], i) => (
                     <div key={i}><span style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase" }}>{l}</span><p style={{ fontSize: 14, color: C.textMuted }}>{v || "—"}</p></div>
                   ))}
                 </div>
