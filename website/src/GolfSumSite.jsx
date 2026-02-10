@@ -399,7 +399,7 @@ function HomePage({ nav }) {
       {/* Stats Bar */}
       <section style={{ borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, padding: "32px 24px" }}>
         <div style={{ maxWidth: 800, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24, textAlign: "center" }}>
-          {[["$6.99/mo", "or $49.99/yr (save 40%)"], ["0", "Hardware Required"], ["WHS", "Compliant"]].map(([val, label], i) => (
+          {[["$5.99/mo", "or $49.99/yr (save 31%)"], ["0", "Hardware Required"], ["WHS", "Compliant"]].map(([val, label], i) => (
             <div key={i} className={`fade-up stagger-${i + 1}`}>
               <div style={{ fontSize: 28, fontWeight: 700, color: C.text }}>{val}</div>
               <div style={{ fontSize: 13, color: C.textMuted }}>{label}</div>
@@ -469,7 +469,7 @@ function HomePage({ nav }) {
             <h2 className="serif" style={{ fontSize: 30, fontWeight: 400, marginBottom: 12 }}>Ready to play smarter?</h2>
             <p style={{ color: C.textMuted, marginBottom: 28 }}>Start with 3 rounds. Let the data show you where to improve.</p>
             <button className="btn btn-primary" style={{ fontSize: 16, padding: "14px 32px" }} onClick={() => nav("pricing")}>
-              Start Free Trial <Icon name="arrow" size={18} color="#fff" />
+              Start Free Rounds <Icon name="arrow" size={18} color="#fff" />
             </button>
           </div>
         </div>
@@ -523,7 +523,7 @@ function PricingPage() {
   return (
     <section style={{ padding: "80px 24px", maxWidth: 1000, margin: "0 auto" }}>
       <h1 className="serif fade-up" style={{ fontSize: 42, fontWeight: 400, textAlign: "center", marginBottom: 12 }}>Simple Pricing</h1>
-      <p className="fade-up stagger-1" style={{ textAlign: "center", color: C.textMuted, marginBottom: 48, fontSize: 17 }}>Start free. Upgrade when you're ready for the full picture.</p>
+      <p className="fade-up stagger-1" style={{ textAlign: "center", color: C.textMuted, marginBottom: 48, fontSize: 17 }}>Start free with 3 premium rounds. Upgrade when you're ready for the full picture.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
         {/* Free */}
         <div className="card fade-up stagger-1" style={{ padding: 32 }}>
@@ -541,7 +541,7 @@ function PricingPage() {
         {/* Monthly */}
         <div className="card fade-up stagger-2" style={{ padding: 32 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.brand, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Premium Monthly</div>
-          <div style={{ fontSize: 40, fontWeight: 700, marginBottom: 4 }}>$6.99<span style={{ fontSize: 16, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
+          <div style={{ fontSize: 40, fontWeight: 700, marginBottom: 4 }}>$5.99<span style={{ fontSize: 16, fontWeight: 400, color: C.textMuted }}>/mo</span></div>
           <div style={{ fontSize: 14, color: C.textDim, marginBottom: 24 }}>Cancel anytime</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
             {premiumFeatureList.map((f, i) => (
@@ -554,16 +554,16 @@ function PricingPage() {
         </div>
         {/* Annual */}
         <div className="card fade-up stagger-3" style={{ padding: 32, borderColor: C.brand, position: "relative", background: `linear-gradient(135deg, ${C.bgCard}, rgba(16,185,129,0.04))` }}>
-          <div className="badge badge-green" style={{ position: "absolute", top: -10, right: 16 }}>Save 40%</div>
+          <div className="badge badge-green" style={{ position: "absolute", top: 8, right: 12 }}>Save 31%</div>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.brand, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Premium Annual</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 40, fontWeight: 700 }}>$49.99</span>
             <span style={{ fontSize: 16, color: C.textMuted }}>/year</span>
           </div>
-          <div style={{ fontSize: 14, color: C.textDim, marginBottom: 4 }}>$4.17/month · 7-day free trial</div>
+          <div style={{ fontSize: 14, color: C.textDim, marginBottom: 4 }}>$4.17/month · 3 free premium rounds</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 24 }}>
-            <span style={{ fontSize: 14, color: C.textDim, textDecoration: "line-through" }}>$83.88/yr</span>
-            <span style={{ fontSize: 14, color: C.brand, fontWeight: 600 }}>You save $33.89</span>
+            <span style={{ fontSize: 14, color: C.textDim, textDecoration: "line-through" }}>$71.88/yr</span>
+            <span style={{ fontSize: 14, color: C.brand, fontWeight: 600 }}>You save $21.89</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
             {premiumFeatureList.map((f, i) => (
@@ -572,7 +572,7 @@ function PricingPage() {
               </div>
             ))}
           </div>
-          <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }}>Start Free Trial</button>
+          <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }}>Start Free Rounds</button>
         </div>
       </div>
     </section>
@@ -615,7 +615,7 @@ function TermsPage() {
         { t: "1. Acceptance of Terms", b: "By downloading, installing, or using GolfSum, you agree to these Terms of Service. If you do not agree, do not use the app." },
         { t: "2. Description of Service", b: "GolfSum is a golf analytics application that allows you to track scores, analyze statistics, and receive coaching insights. The service is provided on an 'as is' basis." },
         { t: "3. Accounts", b: "You are responsible for maintaining the security of your account credentials. You must provide accurate information when creating an account." },
-        { t: "4. Subscriptions & Payments", b: "Premium features require an active subscription ($6.99/month or $49.99/year). Subscriptions are billed through Apple App Store or Google Play Store. Refunds are handled per the respective store's policy. Free trial periods, if offered, convert to paid subscriptions unless cancelled before the trial ends." },
+        { t: "4. Subscriptions & Payments", b: "Premium features require an active subscription ($5.99/month or $49.99/year). Subscriptions are billed through Apple App Store or Google Play Store. Refunds are handled per the respective store's policy. We offer three free premium rounds; after that, you keep access to basic features unless you upgrade." },
         { t: "5. User Data & Content", b: "You retain ownership of all golf data you enter. By using the OCR import feature, you grant us a license to use extracted course data (yardages, pars, ratings) in our community course catalog." },
         { t: "6. Handicap Calculations", b: "GolfSum implements WHS calculations to the best of our ability. However, GolfSum is not an official handicap service and our calculations should not be used for official tournament purposes unless verified by an authorized handicap provider." },
         { t: "7. Limitation of Liability", b: "GolfSum is provided 'as is' without warranties of any kind. We are not liable for any indirect, incidental, or consequential damages arising from your use of the app. Our total liability is limited to the amount you paid in the prior 12 months." },
