@@ -343,10 +343,7 @@ function Nav({ page, nav, user, isAdmin, onLogout }) {
     <nav style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(11,15,19,0.85)", backdropFilter: "blur(20px)", borderBottom: `1px solid ${C.border}` }}>
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
         <button onClick={() => nav("home")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: C.brand, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Icon name="flag" size={16} color="#fff" />
-          </div>
-          <span style={{ fontSize: 18, fontWeight: 700, color: C.text, letterSpacing: "-0.02em" }}>GolfSum</span>
+          <img src="/images/golfsum-logo.png" alt="GolfSum" style={{ height: 26, width: "auto", display: "block" }} />
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {["features", "pricing"].map((p) => (
