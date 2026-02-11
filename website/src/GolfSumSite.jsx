@@ -785,9 +785,33 @@ function DashboardPage({ user }) {
               </div>
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}><h3 style={{ fontSize: 15, fontWeight: 600 }}>Recent Rounds</h3></div>
-                <table className="table"><thead><tr><th>Date</th><th>Course</th><th>Score</th><th>Putts</th><th>FIR</th><th>GIR</th></tr></thead><tbody>
+                <table className="table"><thead><tr><th>Date</th><th>Course</th><th>Score</th><th>Putts</th><th>FIR</th><th>GIR</th><th>Scorecard</th></tr></thead><tbody>
                   {rounds.slice(0, 10).map((r, i) => (
-                    <tr key={i}><td>{fmtDate(r.date)}</td><td style={{ color: C.text, fontWeight: 500 }}>{r.courseName || "—"}</td><td style={{ fontWeight: 600, color: C.text }}>{r.score}</td><td>{r.stats?.putts || "—"}</td><td>{pct(r.stats?.fairways, r.stats?.fairwaysPossible)}</td><td>{pct(r.stats?.greens, r.stats?.greensPossible)}</td></tr>
+                    <tr key={i}>
+                      <td>{fmtDate(r.date)}</td>
+                      <td style={{ color: C.text, fontWeight: 500 }}>{r.courseName || "—"}</td>
+                      <td style={{ fontWeight: 600, color: C.text }}>{r.score}</td>
+                      <td>{r.stats?.putts || "—"}</td>
+                      <td>{pct(r.stats?.fairways, r.stats?.fairwaysPossible)}</td>
+                      <td>{pct(r.stats?.greens, r.stats?.greensPossible)}</td>
+                      <td>
+                        {r.thumbnailUri || r.imageUri ? (
+                          <a
+                            href={r.imageUri || r.thumbnailUri}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                          >
+                            <img
+                              src={r.thumbnailUri || r.imageUri}
+                              alt="Scorecard"
+                              style={{ width: 44, height: 32, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}` }}
+                            />
+                            <span style={{ fontSize: 12, color: C.textMuted }}>View</span>
+                          </a>
+                        ) : "—"}
+                      </td>
+                    </tr>
                   ))}
                 </tbody></table>
               </div>
@@ -795,9 +819,37 @@ function DashboardPage({ user }) {
           )}
           {tab === "history" && (
             <div className="fade-in card" style={{ padding: 0, overflow: "auto" }}>
-              <table className="table"><thead><tr><th>Date</th><th>Course</th><th>Tee</th><th>Score</th><th>Putts</th><th>FIR</th><th>GIR</th><th>Rating</th><th>Slope</th><th>Diff</th></tr></thead><tbody>
+              <table className="table"><thead><tr><th>Date</th><th>Course</th><th>Tee</th><th>Score</th><th>Putts</th><th>FIR</th><th>GIR</th><th>Rating</th><th>Slope</th><th>Diff</th><th>Scorecard</th></tr></thead><tbody>
                 {rounds.map((r, i) => (
-                  <tr key={i}><td>{fmtDate(r.date)}</td><td style={{ color: C.text, fontWeight: 500, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.courseName || "—"}</td><td>{r.stats?.teeBox || "—"}</td><td style={{ fontWeight: 600, color: C.text }}>{r.score}</td><td>{r.stats?.putts || "—"}</td><td>{pct(r.stats?.fairways, r.stats?.fairwaysPossible)}</td><td>{pct(r.stats?.greens, r.stats?.greensPossible)}</td><td>{r.stats?.courseRating || "—"}</td><td>{r.stats?.slopeRating || "—"}</td><td>{r.differential != null ? fmt(r.differential, 1) : "—"}</td></tr>
+                  <tr key={i}>
+                    <td>{fmtDate(r.date)}</td>
+                    <td style={{ color: C.text, fontWeight: 500, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.courseName || "—"}</td>
+                    <td>{r.stats?.teeBox || "—"}</td>
+                    <td style={{ fontWeight: 600, color: C.text }}>{r.score}</td>
+                    <td>{r.stats?.putts || "—"}</td>
+                    <td>{pct(r.stats?.fairways, r.stats?.fairwaysPossible)}</td>
+                    <td>{pct(r.stats?.greens, r.stats?.greensPossible)}</td>
+                    <td>{r.stats?.courseRating || "—"}</td>
+                    <td>{r.stats?.slopeRating || "—"}</td>
+                    <td>{r.differential != null ? fmt(r.differential, 1) : "—"}</td>
+                    <td>
+                      {r.thumbnailUri || r.imageUri ? (
+                        <a
+                          href={r.imageUri || r.thumbnailUri}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                        >
+                          <img
+                            src={r.thumbnailUri || r.imageUri}
+                            alt="Scorecard"
+                            style={{ width: 44, height: 32, objectFit: "cover", borderRadius: 6, border: `1px solid ${C.border}` }}
+                          />
+                          <span style={{ fontSize: 12, color: C.textMuted }}>View</span>
+                        </a>
+                      ) : "—"}
+                    </td>
+                  </tr>
                 ))}
               </tbody></table>
             </div>
