@@ -1088,7 +1088,16 @@ function AdminPage({ user }) {
   const recentLogins = users.filter((u) => daysSince(getUserLastLoginAt(u)) <= 7).length;
   const ocrLastAt = ocrStats.last?.lastVerifiedAt ? new Date(ocrStats.last.lastVerifiedAt).toISOString() : (ocrStats.last?.updatedAt || null);
   const ocrLastName = ocrStats.last?.name || "—";
-  const errorUsers = users.filter((u) => u.lastError?.message || u.lastError?.stack);
+  const errorUsers = (() => {
+    const byKey = new Map();
+    users
+      .filter((u) => u.lastError?.message || u.lastError?.stack)
+      .forEach((u) => {
+        const key = `${u.uid}|${u.lastError?.createdAt || ""}|${u.lastError?.message || ""}`;
+        if (!byKey.has(key)) byKey.set(key, u);
+      });
+    return Array.from(byKey.values());
+  })();
   const userLookup = users.reduce((acc, u) => { acc[u.uid] = u; return acc; }, {});
   const userReportedIssues = users
     .filter((u) => u.lastReportedIssue?.message || u.lastReportedIssueAt)
