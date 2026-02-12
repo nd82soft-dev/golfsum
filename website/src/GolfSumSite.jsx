@@ -948,6 +948,8 @@ function AdminPage({ user }) {
   const [selectedErrorUser, setSelectedErrorUser] = useState(null);
   const [reportedIssues, setReportedIssues] = useState([]);
   const [selectedReportedIssue, setSelectedReportedIssue] = useState(null);
+  const [reportNoteDraft, setReportNoteDraft] = useState("");
+  const [updatingReport, setUpdatingReport] = useState(false);
   const [homeCourseDraft, setHomeCourseDraft] = useState("");
   const [savingHomeCourse, setSavingHomeCourse] = useState(false);
 
@@ -981,6 +983,45 @@ function AdminPage({ user }) {
     setHomeCourseDraft(getUserHomeCourse(usr) === "—" ? "" : getUserHomeCourse(usr));
     try { const r = allRounds[usr.uid] || await getUserRounds(usr.uid, user.idToken); setSelectedRounds(r.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))); } catch { setSelectedRounds([]); }
     setLoadingUser(false);
+  };
+
+  const updateReportedIssue = async (issue, updates = {}) => {
+    if (!issue?.uid) return;
+    setUpdatingReport(true);
+    const now = new Date().toISOString();
+    const nextIssue = {
+      ...issue,
+      ...updates,
+      status: updates.status || issue.status || "open",
+    };
+    try {
+      await firestorePatchWithFieldPaths(
+        `users/${issue.uid}`,
+        user.idToken,
+        {
+          lastReportedIssue: nextIssue,
+          lastReportedIssueAt: issue.createdAt || now,
+        },
+        ["lastReportedIssue", "lastReportedIssueAt"]
+      );
+      if (issue.id) {
+        await firestorePatchWithFieldPaths(
+          `reportedIssues/${issue.id}`,
+          user.idToken,
+          updates,
+          Object.keys(updates || {})
+        );
+      }
+      setUsers((prev) => prev.map((u) => u.uid === issue.uid ? {
+        ...u,
+        lastReportedIssue: nextIssue,
+        lastReportedIssueAt: issue.createdAt || now,
+      } : u));
+      setReportedIssues((prev) => prev.map((i) => i.id === issue.id ? { ...i, ...updates } : i));
+      setSelectedReportedIssue((prev) => prev ? { ...prev, ...updates } : prev);
+    } finally {
+      setUpdatingReport(false);
+    }
   };
 
   const handleSaveHomeCourse = async () => {
@@ -1028,6 +1069,7 @@ function AdminPage({ user }) {
         createdAt: u.lastReportedIssueAt || issue.createdAt,
         lastLoginAt: issue.lastLoginAt || getUserLastLoginAt(u) || null,
         lastError: issue.lastError || u.lastError || null,
+        status: issue.status || "open",
         __source: "user",
       };
     });
@@ -1194,7 +1236,7 @@ function AdminPage({ user }) {
                         <td style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{issue.message || "—"}</td>
                         <td>{lastLogin ? fmtDate(lastLogin) : "—"}</td>
                         <td style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{recentError}</td>
-                        <td><button className="btn btn-ghost btn-sm" onClick={() => setSelectedReportedIssue(issue)}>View</button></td>
+                        <td><button className="btn btn-ghost btn-sm" onClick={() => { setSelectedReportedIssue(issue); setReportNoteDraft(issue.adminNote || ""); }}>View</button></td>
                       </tr>
                     );
                   })}
@@ -1207,6 +1249,14 @@ function AdminPage({ user }) {
                 <h3 style={{ fontSize: 15, fontWeight: 600 }}>Full Report</h3>
                 <button className="btn btn-ghost btn-sm" onClick={() => setSelectedReportedIssue(null)}>Close</button>
               </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+                <span className={`badge ${selectedReportedIssue.status === "completed" ? "badge-green" : "badge-amber"}`}>
+                  {selectedReportedIssue.status === "completed" ? "Completed" : "Open"}
+                </span>
+                {selectedReportedIssue.completedAt && (
+                  <span style={{ fontSize: 12, color: C.textDim }}>Completed {fmtDate(selectedReportedIssue.completedAt)}</span>
+                )}
+              </div>
               <div style={{ fontSize: 12, color: C.textDim, marginBottom: 10 }}>
                 {selectedReportedIssue.createdAt ? fmtDate(selectedReportedIssue.createdAt) : "—"}
               </div>
@@ -1216,6 +1266,62 @@ function AdminPage({ user }) {
                 {selectedReportedIssue.uid || "—"}
               </div>
               <div style={{ fontSize: 14, color: C.text, marginBottom: 12 }}>{selectedReportedIssue.message || "—"}</div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", marginBottom: 6 }}>Admin Note</div>
+                <textarea
+                  value={reportNoteDraft}
+                  onChange={(e) => setReportNoteDraft(e.target.value)}
+                  placeholder="Add a note for the user..."
+                  style={{
+                    width: "100%",
+                    minHeight: 80,
+                    background: C.bgElevated,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 10,
+                    color: C.text,
+                    padding: "10px 12px",
+                    fontFamily: "inherit",
+                    fontSize: 13,
+                  }}
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    disabled={updatingReport}
+                    onClick={() => updateReportedIssue(selectedReportedIssue, { adminNote: reportNoteDraft })}
+                  >
+                    {updatingReport ? "Saving..." : "Save Note"}
+                  </button>
+                  {selectedReportedIssue.status !== "completed" ? (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={updatingReport}
+                      onClick={() => updateReportedIssue(selectedReportedIssue, {
+                        status: "completed",
+                        adminNote: reportNoteDraft,
+                        completedAt: new Date().toISOString(),
+                        completedBy: user.uid,
+                        completedByEmail: user.email || null,
+                      })}
+                    >
+                      {updatingReport ? "Updating..." : "Mark Completed"}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      disabled={updatingReport}
+                      onClick={() => updateReportedIssue(selectedReportedIssue, {
+                        status: "open",
+                        completedAt: null,
+                        completedBy: null,
+                        completedByEmail: null,
+                      })}
+                    >
+                      {updatingReport ? "Updating..." : "Reopen"}
+                    </button>
+                  )}
+                </div>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 12 }}>
                 {[
                   ["Platform", selectedReportedIssue.platform],
