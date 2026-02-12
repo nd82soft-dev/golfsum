@@ -1106,16 +1106,24 @@ function AdminPage({ user }) {
       };
     });
   const mergedReportedIssues = (() => {
-    const byKey = new Map();
-    const pushIssue = (issue, source) => {
-      const key = issue?.id
-        ? `id:${issue.id}`
-        : `${issue?.uid || "unknown"}|${issue?.createdAt || ""}|${issue?.message || ""}|${source}`;
-      if (!byKey.has(key)) byKey.set(key, { ...issue, __source: source });
+    const byBase = new Map();
+    const getBaseKey = (issue) => `${issue?.uid || "unknown"}|${issue?.createdAt || ""}|${issue?.message || ""}`;
+    const chooseEntry = (current, next) => {
+      if (!current) return next;
+      if (current.__source !== "collection" && next.__source === "collection") return next;
+      return current;
     };
+    const pushIssue = (issue, source) => {
+      if (!issue) return;
+      const baseKey = getBaseKey(issue);
+      const entry = { ...issue, __source: source };
+      const existing = byBase.get(baseKey);
+      byBase.set(baseKey, chooseEntry(existing, entry));
+    };
+    // Prefer collection issues over user doc fallback and dedupe by uid/createdAt/message
     (reportedIssues || []).forEach((issue) => pushIssue(issue, "collection"));
     (userReportedIssues || []).forEach((issue) => pushIssue(issue, "user"));
-    return Array.from(byKey.values());
+    return Array.from(byBase.values());
   })();
 
   const filtered = searchTerm ? users.filter((u) => {
