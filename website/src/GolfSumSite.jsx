@@ -21,6 +21,123 @@ const FIREBASE_CONFIG = {
 };
 const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents`;
 
+// ─── Service Health Checks ───
+const SERVICE_CHECKS = [
+  {
+    name: "Cloud Run OCR",
+    key: "ocr",
+    url: "https://golfsum-ocr-1037127791438.us-central1.run.app/health",
+    critical: true,
+    parse: (data) => data?.status === "ok" ? "ok" : "down",
+  },
+  {
+    name: "OCR Deep Health",
+    key: "ocr_deep",
+    url: "https://golfsum-ocr-1037127791438.us-central1.run.app/health/deep",
+    critical: true,
+    parse: (data) => ({
+      status: data?.status === "healthy" ? "ok" : "degraded",
+      checks: data?.checks || {},
+    }),
+  },
+  {
+    name: "Firebase Auth",
+    key: "firebase_auth",
+    url: `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_CONFIG.apiKey}`,
+    method: "POST",
+    body: JSON.stringify({}),
+    critical: true,
+    // Expect 400 (missing email) — proves the API is responding
+    parse: (data, status) => (status === 400 || status === 200) ? "ok" : "down",
+    acceptError: true,
+  },
+  {
+    name: "Firestore",
+    key: "firestore",
+    url: `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents/healthcheck/ping`,
+    critical: true,
+    // 404 = firestore is up but doc doesn't exist (expected). 200 = doc exists.
+    parse: (data, status) => (status === 200 || status === 404) ? "ok" : "down",
+    acceptError: true,
+  },
+  {
+    name: "Golf Course API",
+    key: "golf_api",
+    url: "https://api.golfcourseapi.com/v1/search?search_query=test",
+    critical: false,
+    // 401/403 = API is up but no key in header (expected from browser). Any response = alive.
+    parse: (data, status) => status > 0 ? "ok" : "down",
+    acceptError: true,
+  },
+  {
+    name: "Open-Meteo Weather",
+    key: "weather",
+    url: "https://api.open-meteo.com/v1/forecast?latitude=34.05&longitude=-118.24&current_weather=true",
+    critical: false,
+    parse: (data) => data?.current_weather ? "ok" : "degraded",
+  },
+  {
+    name: "Nominatim Geocoding",
+    key: "nominatim",
+    url: "https://nominatim.openstreetmap.org/search?q=pebble+beach+golf&format=json&limit=1",
+    critical: false,
+    parse: (data) => Array.isArray(data) ? "ok" : "degraded",
+  },
+  {
+    name: "Overpass (OSM Courses)",
+    key: "overpass",
+    url: "https://overpass-api.de/api/status",
+    critical: false,
+    parse: (data, status) => status === 200 ? "ok" : "degraded",
+    isText: true,
+  },
+];
+
+async function runHealthChecks() {
+  const results = {};
+  const checks = SERVICE_CHECKS.map(async (svc) => {
+    const start = Date.now();
+    try {
+      const opts = { method: svc.method || "GET", headers: {} };
+      if (svc.body) opts.body = svc.body;
+      if (svc.method === "POST") opts.headers["Content-Type"] = "application/json";
+
+      const resp = await Promise.race([
+        fetch(svc.url, opts),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+      ]);
+
+      const latency = Date.now() - start;
+      let data = null;
+      try {
+        data = svc.isText ? await resp.text() : await resp.json();
+      } catch {}
+
+      const parsed = svc.parse(data, resp.status);
+      const status = typeof parsed === "object" ? parsed.status : parsed;
+
+      results[svc.key] = {
+        name: svc.name,
+        status,
+        latency_ms: latency,
+        critical: svc.critical,
+        http_status: resp.status,
+        ...(typeof parsed === "object" && parsed.checks ? { checks: parsed.checks } : {}),
+      };
+    } catch (e) {
+      results[svc.key] = {
+        name: svc.name,
+        status: "down",
+        latency_ms: Date.now() - start,
+        critical: svc.critical,
+        error: e.message,
+      };
+    }
+  });
+  await Promise.allSettled(checks);
+  return results;
+}
+
 // ─── Firestore Helpers ───
 const fromFirestoreValue = (v) => {
   if (!v) return null;
@@ -737,13 +854,35 @@ function TermsPage() {
 function LoginPage({ onLogin }) {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const [confirmPass, setConfirmPass] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("signin");
 
+  const validatePassword = (pw) => {
+    const errs = [];
+    if (pw.length < 8) errs.push("at least 8 characters");
+    if (!/[A-Z]/.test(pw)) errs.push("one uppercase letter");
+    if (!/[a-z]/.test(pw)) errs.push("one lowercase letter");
+    if (!/[0-9]/.test(pw)) errs.push("one number");
+    return errs;
+  };
+
   const handleSubmit = async () => {
     setError(""); setLoading(true);
     try {
+      if (mode === "signup") {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+          setError("Please enter a valid email address"); setLoading(false); return;
+        }
+        const pwErrors = validatePassword(pass);
+        if (pwErrors.length > 0) {
+          setError("Password requires: " + pwErrors.join(", ")); setLoading(false); return;
+        }
+        if (pass !== confirmPass) {
+          setError("Passwords do not match"); setLoading(false); return;
+        }
+      }
       const res = await (mode === "signin" ? signInWithEmail : signUpWithEmail)(email, pass);
       onLogin({ uid: res.localId, email: res.email, idToken: res.idToken, refreshToken: res.refreshToken });
       updateLastLogin(res.localId, res.idToken);
@@ -761,14 +900,20 @@ function LoginPage({ onLogin }) {
         {error && <div className="badge badge-red" style={{ marginBottom: 16, width: "100%", justifyContent: "center", padding: "8px 12px" }}>{error}</div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <input className="input" type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input className="input" type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+          <input className="input" type="password" placeholder="Password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (mode === "signup" ? document.getElementById("gs-confirm-pw")?.focus() : handleSubmit())} />
+          {mode === "signup" && (
+            <>
+              <input id="gs-confirm-pw" className="input" type="password" placeholder="Confirm Password" value={confirmPass} onChange={(e) => setConfirmPass(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+              <p style={{ fontSize: 12, color: C.textDim, margin: "-4px 0 0" }}>Min 8 characters with uppercase, lowercase, and a number</p>
+            </>
+          )}
           <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: 4 }} onClick={handleSubmit} disabled={loading}>
             {loading ? "Loading..." : mode === "signin" ? "Sign In" : "Create Account"}
           </button>
         </div>
         <p style={{ fontSize: 13, color: C.textDim, textAlign: "center", marginTop: 20 }}>
           {mode === "signin" ? "Don't have an account? " : "Already have an account? "}
-          <a href="#" onClick={(e) => { e.preventDefault(); setMode(mode === "signin" ? "signup" : "signin"); setError(""); }}>
+          <a href="#" onClick={(e) => { e.preventDefault(); setMode(mode === "signin" ? "signup" : "signin"); setError(""); setConfirmPass(""); }}>
             {mode === "signin" ? "Sign up" : "Sign in"}
           </a>
         </p>
@@ -949,6 +1094,9 @@ function AdminPage({ user }) {
   const [selectedOcrError, setSelectedOcrError] = useState(null);
   const [selectedErrorUser, setSelectedErrorUser] = useState(null);
   const [expandedTopError, setExpandedTopError] = useState(null);
+  const [serviceStatus, setServiceStatus] = useState(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [lastStatusCheck, setLastStatusCheck] = useState(null);
   const [reportedIssues, setReportedIssues] = useState([]);
   const [selectedReportedIssue, setSelectedReportedIssue] = useState(null);
   const [reportNoteDraft, setReportNoteDraft] = useState("");
@@ -961,6 +1109,23 @@ function AdminPage({ user }) {
   useEffect(() => {
     reloadAdminData(true);
   }, [user]);
+
+  // Run health checks on mount and every 5 minutes
+  const refreshStatus = useCallback(async () => {
+    setStatusLoading(true);
+    try {
+      const results = await runHealthChecks();
+      setServiceStatus(results);
+      setLastStatusCheck(new Date().toLocaleTimeString());
+    } catch {}
+    setStatusLoading(false);
+  }, []);
+
+  useEffect(() => {
+    refreshStatus();
+    const interval = setInterval(refreshStatus, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refreshStatus]);
 
   const reloadAdminData = async (showLoader = false) => {
     if (showLoader) setLoading(true);
@@ -1214,6 +1379,105 @@ function AdminPage({ user }) {
             <div className="stat-box"><div className="stat-value">{ocrErrors.length}</div><div className="stat-label">OCR Errors</div></div>
             <div className="stat-box"><div className="stat-value" style={{ fontSize: 13 }}>{ocrLastAt ? fmtDate(ocrLastAt) : "—"}</div><div className="stat-label">Last OCR: {ocrLastName}</div></div>
             <div className="stat-box"><div className="stat-value">{mergedReportedIssues.length}</div><div className="stat-label">Reported Issues</div></div>
+          </div>
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <h3 style={{ fontSize: 15, fontWeight: 600 }}>System Status</h3>
+                <p style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                  {lastStatusCheck ? `Last checked: ${lastStatusCheck}` : "Checking..."}
+                </p>
+              </div>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={refreshStatus}
+                disabled={statusLoading}
+                style={{ fontSize: 12 }}
+              >
+                {statusLoading ? "Checking..." : "Refresh"}
+              </button>
+            </div>
+            {!serviceStatus ? (
+              <div style={{ padding: 20, fontSize: 13, color: C.textMuted }}>Running health checks...</div>
+            ) : (
+              <div>
+                {Object.values(serviceStatus).map((svc, i) => {
+                  const color = svc.status === "ok" ? "#10B981"
+                    : svc.status === "degraded" ? "#F59E0B"
+                    : "#EF4444";
+                  const icon = svc.status === "ok" ? "●"
+                    : svc.status === "degraded" ? "◐"
+                    : "●";
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "10px 20px",
+                        borderBottom: `1px solid ${C.border}`,
+                      }}
+                    >
+                      <span style={{ color, fontSize: 16, minWidth: 20 }}>{icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{svc.name}</span>
+                        {svc.critical && (
+                          <span style={{ fontSize: 10, color: C.textDim, marginLeft: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>critical</span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 11, color: C.textDim, minWidth: 60, textAlign: "right" }}>
+                        {svc.latency_ms != null ? `${svc.latency_ms}ms` : "—"}
+                      </span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color,
+                        textTransform: "uppercase",
+                        minWidth: 60,
+                        textAlign: "right",
+                      }}>
+                        {svc.status}
+                      </span>
+                    </div>
+                  );
+                })}
+                {serviceStatus.ocr_deep?.checks && Object.entries(serviceStatus.ocr_deep.checks).map(([key, check], i) => {
+                  const color = check.status === "ok" ? "#10B981"
+                    : check.status === "warning" ? "#F59E0B"
+                    : "#EF4444";
+                  const label = {
+                    gemini: "└ Gemini API",
+                    opencv: "└ OpenCV",
+                    disk: "└ Disk Space",
+                    memory: "└ Memory",
+                  }[key] || `└ ${key}`;
+                  const detail = check.latency_ms ? `${check.latency_ms}ms`
+                    : check.version ? `v${check.version}`
+                    : check.free_mb ? `${check.free_mb}MB free`
+                    : check.rss_mb ? `${check.rss_mb}MB RSS`
+                    : "";
+                  return (
+                    <div
+                      key={`deep-${i}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "6px 20px 6px 40px",
+                        borderBottom: `1px solid ${C.border}`,
+                        background: "rgba(0,0,0,0.02)",
+                      }}
+                    >
+                      <span style={{ color, fontSize: 12, minWidth: 20 }}>●</span>
+                      <span style={{ flex: 1, fontSize: 12, color: C.textMuted }}>{label}</span>
+                      <span style={{ fontSize: 11, color: C.textDim, minWidth: 80, textAlign: "right" }}>{detail}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color, textTransform: "uppercase", minWidth: 60, textAlign: "right" }}>{check.status}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
             <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
