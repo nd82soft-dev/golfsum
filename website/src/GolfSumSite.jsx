@@ -946,6 +946,7 @@ function AdminPage({ user }) {
   const [tab, setTab] = useState("overview");
   const [ocrStats, setOcrStats] = useState({ total: null, last: null });
   const [selectedErrorUser, setSelectedErrorUser] = useState(null);
+  const [expandedTopError, setExpandedTopError] = useState(null);
   const [reportedIssues, setReportedIssues] = useState([]);
   const [selectedReportedIssue, setSelectedReportedIssue] = useState(null);
   const [reportNoteDraft, setReportNoteDraft] = useState("");
@@ -1098,6 +1099,34 @@ function AdminPage({ user }) {
       });
     return Array.from(byKey.values());
   })();
+
+  // Top errors grouped by message — count of users hitting each, most recent occurrence, affected users list
+  const topErrors = (() => {
+    const grouped = new Map();
+    users
+      .filter((u) => u.lastError?.message)
+      .forEach((u) => {
+        const msg = u.lastError.message;
+        if (!grouped.has(msg)) {
+          grouped.set(msg, {
+            message: msg,
+            name: u.lastError.name || null,
+            count: 0,
+            lastSeen: u.lastError.createdAt || "",
+            users: [],
+          });
+        }
+        const entry = grouped.get(msg);
+        entry.count += 1;
+        entry.users.push({ uid: u.uid, name: getUserName(u), email: getUserEmail(u), createdAt: u.lastError.createdAt });
+        if (u.lastError.createdAt && u.lastError.createdAt > entry.lastSeen) {
+          entry.lastSeen = u.lastError.createdAt;
+        }
+      });
+    return Array.from(grouped.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  })();
   const userLookup = users.reduce((acc, u) => { acc[u.uid] = u; return acc; }, {});
   const userReportedIssues = users
     .filter((u) => u.lastReportedIssue?.message || u.lastReportedIssueAt)
@@ -1178,6 +1207,74 @@ function AdminPage({ user }) {
             <div className="stat-box"><div className="stat-value">{ocrStats.total != null ? ocrStats.total : "—"}</div><div className="stat-label">OCR Uploads</div></div>
             <div className="stat-box"><div className="stat-value" style={{ fontSize: 13 }}>{ocrLastAt ? fmtDate(ocrLastAt) : "—"}</div><div className="stat-label">Last OCR: {ocrLastName}</div></div>
             <div className="stat-box"><div className="stat-value">{mergedReportedIssues.length}</div><div className="stat-label">Reported Issues</div></div>
+          </div>
+          <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}>
+              <h3 style={{ fontSize: 15, fontWeight: 600 }}>Top Errors by Frequency</h3>
+              <p style={{ fontSize: 12, color: C.textMuted, marginTop: 2 }}>Grouped by error message · users currently affected</p>
+            </div>
+            {topErrors.length === 0 ? (
+              <div style={{ padding: 20, fontSize: 13, color: C.textMuted }}>No errors recorded.</div>
+            ) : (
+              <div>
+                {topErrors.map((err, i) => (
+                  <div key={i}>
+                    <div
+                      onClick={() => setExpandedTopError(expandedTopError === i ? null : i)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "12px 20px",
+                        borderBottom: `1px solid ${C.border}`,
+                        cursor: "pointer",
+                        background: expandedTopError === i ? "rgba(16,185,129,0.04)" : "transparent",
+                      }}
+                    >
+                      <div style={{
+                        minWidth: 36, height: 36, borderRadius: 8,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontWeight: 700, fontSize: 15,
+                        background: err.count >= 5 ? "rgba(239,68,68,0.15)" : err.count >= 2 ? "rgba(245,158,11,0.15)" : "rgba(107,114,128,0.1)",
+                        color: err.count >= 5 ? "#EF4444" : err.count >= 2 ? "#F59E0B" : C.textMuted,
+                      }}>
+                        {err.count}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 13, color: C.text, fontWeight: 500,
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}>
+                          {err.message}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>
+                          {err.name ? `${err.name} · ` : ""}{err.count} user{err.count !== 1 ? "s" : ""} · last seen {err.lastSeen ? fmtDate(err.lastSeen) : "—"}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 14, color: C.textDim }}>{expandedTopError === i ? "▲" : "▼"}</div>
+                    </div>
+                    {expandedTopError === i && (
+                      <div style={{ padding: "12px 20px 16px", background: "rgba(16,185,129,0.02)", borderBottom: `1px solid ${C.border}` }}>
+                        <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", marginBottom: 8 }}>Affected Users</div>
+                        <table className="table" style={{ marginBottom: 0 }}>
+                          <thead><tr><th>User</th><th>Email</th><th>When</th><th></th></tr></thead>
+                          <tbody>
+                            {err.users.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)).map((u, j) => (
+                              <tr key={j}>
+                                <td style={{ color: C.text, fontWeight: 500 }}>{u.name || u.uid.slice(0, 8)}</td>
+                                <td style={{ fontSize: 13, color: C.textMuted }}>{u.email || "—"}</td>
+                                <td style={{ fontSize: 12 }}>{u.createdAt ? fmtDate(u.createdAt) : "—"}</td>
+                                <td><button className="btn btn-ghost btn-sm" onClick={() => { const fullUser = users.find(x => x.uid === u.uid); if (fullUser) { setSelectedErrorUser(fullUser); } }}>View Full</button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 20 }}>
             <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}` }}><h3 style={{ fontSize: 15, fontWeight: 600 }}>Recent Errors</h3></div>
