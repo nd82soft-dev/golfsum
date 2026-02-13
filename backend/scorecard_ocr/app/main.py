@@ -7,6 +7,7 @@ import time
 
 from app.models import ScorecardParseResponse
 from app.pipeline import parse_scorecard_image
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 repo_env = Path(__file__).resolve().parents[2] / ".env"
@@ -19,6 +20,13 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("app.main")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Tighten to your app's domain in production if needed
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
