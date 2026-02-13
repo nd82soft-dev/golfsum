@@ -1307,10 +1307,10 @@ function AdminPage({ user }) {
               <div style={{ fontSize: 12, color: C.textDim, marginBottom: 12 }}>{selectedErrorUser.lastError.createdAt || "—"}</div>
               <div style={{ fontSize: 13, color: C.text, marginBottom: 10 }}>{selectedErrorUser.lastError.message}</div>
               {selectedErrorUser.lastError.stack && (
-                <pre style={{ fontSize: 11, color: C.textMuted, whiteSpace: "pre-wrap", margin: 0 }}>{selectedErrorUser.lastError.stack}</pre>
+                <pre style={{ fontSize: 11, color: C.textMuted, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", margin: 0, maxWidth: "100%" }}>{selectedErrorUser.lastError.stack}</pre>
               )}
               {selectedErrorUser.lastError.args && (
-                <pre style={{ fontSize: 11, color: C.textDim, whiteSpace: "pre-wrap", marginTop: 10 }}>{selectedErrorUser.lastError.args}</pre>
+                <pre style={{ fontSize: 11, color: C.textDim, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", marginTop: 10, maxWidth: "100%" }}>{selectedErrorUser.lastError.args}</pre>
               )}
             </div>
           )}
@@ -1551,14 +1551,14 @@ function AdminPage({ user }) {
                   <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", marginBottom: 6 }}>Recent Error</div>
                   <div style={{ fontSize: 13, color: C.text, marginBottom: 8 }}>{selectedReportedIssue.lastError.message}</div>
                   {selectedReportedIssue.lastError.stack && (
-                    <pre style={{ fontSize: 11, color: C.textMuted, whiteSpace: "pre-wrap", margin: 0 }}>{selectedReportedIssue.lastError.stack}</pre>
+                    <pre style={{ fontSize: 11, color: C.textMuted, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", margin: 0, maxWidth: "100%" }}>{selectedReportedIssue.lastError.stack}</pre>
                   )}
                 </div>
               )}
               {selectedReportedIssue.context && (
                 <div style={{ marginTop: 10 }}>
                   <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", marginBottom: 6 }}>Context</div>
-                  <pre style={{ fontSize: 11, color: C.textMuted, whiteSpace: "pre-wrap", margin: 0 }}>
+                  <pre style={{ fontSize: 11, color: C.textMuted, whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word", margin: 0, maxWidth: "100%" }}>
                     {JSON.stringify(selectedReportedIssue.context, null, 2)}
                   </pre>
                 </div>
